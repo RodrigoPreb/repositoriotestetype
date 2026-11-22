@@ -186,6 +186,7 @@ async function mudarStatus(id: number, status: Status): Promise<void> {
   try {
     await alterarStatus(id, status);
     lista = lista.map((p) => (p.id === id ? { ...p, status } : p));
+    elemento("erro").textContent = ""; // deu certo: apaga o erro antigo
     desenhar();
   } catch (erro) {
     mostrarErro(erro);
@@ -196,6 +197,7 @@ async function remover(id: number): Promise<void> {
   try {
     await removerPartida(id);
     lista = lista.filter((p) => p.id !== id);
+    elemento("erro").textContent = ""; // deu certo: apaga o erro antigo
     desenhar();
   } catch (erro) {
     mostrarErro(erro);
@@ -311,6 +313,11 @@ elemento("botao-sair").addEventListener("click", () => {
   lista = [];
   statusSelecionado = "todos";
   termoDeBusca = "";
+  // a tela também volta ao começo: filtro "Todas" marcado e busca vazia
+  for (const b of elemento("filtros-status").querySelectorAll("button")) {
+    b.classList.toggle("filtro--ativo", b.dataset.status === "todos");
+  }
+  campo("busca").value = "";
   (elemento("form-entrar") as HTMLFormElement).reset();
   mostrarFormulario(false); // volta sempre para "Entrar"
   void iniciar();

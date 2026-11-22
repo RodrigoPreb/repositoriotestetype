@@ -50,17 +50,32 @@ function validar(
   tituloObrigatorio: boolean,
 ): string | undefined {
   if (tituloObrigatorio || dados.titulo !== undefined) {
-    if (typeof dados.titulo !== "string" || dados.titulo.trim().length < 3) {
-      return "O título precisa ter pelo menos 3 caracteres.";
+    if (
+      typeof dados.titulo !== "string" ||
+      dados.titulo.trim().length < 3 ||
+      dados.titulo.trim().length > 120 // o tamanho da coluna no banco
+    ) {
+      return "O título precisa ter de 3 a 120 caracteres.";
     }
+  }
+  if (
+    dados.descricao !== undefined &&
+    dados.descricao !== null &&
+    typeof dados.descricao !== "string"
+  ) {
+    return "Descrição inválida.";
   }
   if (dados.categoria !== undefined && !CATEGORIAS.includes(dados.categoria)) {
     return "Categoria inválida.";
   }
   if (dados.data !== undefined && dados.data !== null && dados.data !== "") {
+    // Date.parse aceita "2026-02-30" (vira 2 de março), então conferimos se
+    // a data volta igual depois de convertida: dia inexistente não volta.
     if (
+      typeof dados.data !== "string" ||
       !/^\d{4}-\d{2}-\d{2}$/.test(dados.data) ||
-      Number.isNaN(Date.parse(dados.data))
+      Number.isNaN(Date.parse(dados.data)) ||
+      new Date(dados.data).toISOString().slice(0, 10) !== dados.data
     ) {
       return "Data inválida. Use o formato AAAA-MM-DD.";
     }
@@ -73,10 +88,11 @@ function validar(
         (tag) =>
           typeof tag !== "string" ||
           tag.trim().length === 0 ||
-          tag.trim().length > 40,
+          tag.trim().length > 40 ||
+          tag.includes(","), // o banco junta as tags separadas por vírgula
       );
     if (ruim) {
-      return "Tags: até 10, cada uma com 1 a 40 caracteres.";
+      return "Tags: até 10, cada uma com 1 a 40 caracteres e sem vírgula.";
     }
   }
   return undefined;
@@ -84,12 +100,20 @@ function validar(
 
 // ---------- USUÁRIOS ----------
 app.post("/api/usuarios", async (req, res) => {
-  const { nome, email, senha } = req.body as {
-    nome?: string;
-    email?: string;
-    senha?: string;
+  // sem corpo JSON, o Express 5 deixa req.body undefined: daí o ?? {}
+  const { nome, email, senha } = (req.body ?? {}) as {
+    nome?: unknown;
+    email?: unknown;
+    senha?: unknown;
   };
-  if (!nome?.trim() || !email?.includes("@") || !senha || senha.length < 6) {
+  if (
+    typeof nome !== "string" ||
+    typeof email !== "string" ||
+    typeof senha !== "string" ||
+    !nome.trim() ||
+    !email.includes("@") ||
+    senha.length < 6
+  ) {
     res.status(400).json({
       erro: "Preencha nome, e-mail válido e senha de 6 caracteres ou mais.",
     });
@@ -113,14 +137,18 @@ app.post("/api/usuarios", async (req, res) => {
 });
 
 app.post("/api/login", async (req, res) => {
-  const { email, senha } = req.body as { email?: string; senha?: string };
+  const { email, senha } = (req.body ?? {}) as {
+    email?: unknown;
+    senha?: unknown;
+  };
   const [linhas] = await banco.execute<RowDataPacket[]>(
     "SELECT id, nome, senha_hash FROM usuarios WHERE email = ?",
-    [email?.trim().toLowerCase() ?? ""],
+    [typeof email === "string" ? email.trim().toLowerCase() : ""],
   );
   const usuario = linhas[0];
   if (
     !usuario ||
+    typeof senha !== "string" ||
     !senha ||
     !(await bcrypt.compare(senha, usuario.senha_hash))
   ) {
@@ -204,7 +232,7 @@ app.get("/api/partidas/:id", exigirLogin, async (req, res) => {
 
 // ---------- CRIAR ----------
 app.post("/api/partidas", exigirLogin, async (req, res) => {
-  const dados = req.body as DadosPartida;
+  const dados = (req.body ?? {}) as DadosPartida;
   const problema = validar(dados, true);
   if (problema) {
     res.status(400).json({ erro: problema }); // 400: o pedido veio errado
@@ -253,7 +281,7 @@ app.post("/api/partidas", exigirLogin, async (req, res) => {
 
 // ---------- ATUALIZAR: só o status ----------
 app.patch("/api/partidas/:id/status", exigirLogin, async (req, res) => {
-  const { status } = req.body as { status?: Status };
+  const { status } = (req.body ?? {}) as { status?: Status };
   if (!status || !STATUS.includes(status)) {
     res.status(400).json({ erro: "Status inválido." });
     return;
@@ -273,16 +301,24 @@ app.patch("/api/partidas/:id/status", exigirLogin, async (req, res) => {
 
 // ---------- EDITAR (Prata da Aula 4): troca o título ----------
 app.put("/api/partidas/:id", exigirLogin, async (req, res) => {
-  const dados = req.body as DadosPartida;
-  const problema = validar(dados, false);
+  const dados = (req.body ?? {}) as DadosPartida;
+  // Esta rota só troca o título: outro campo no corpo é recusado,
+  // em vez de ser ignorado sem avisar.
+  const extras = Object.keys(dados).filter((campo) => campo !== "titulo");
+  if (extras.length > 0) {
+    res.status(400).json({
+      erro: `Esta rota só altera o título (recebi também: ${extras.join(", ")}).`,
+    });
+    return;
+  }
+  const problema = validar(dados, true);
   if (problema) {
     res.status(400).json({ erro: problema });
     return;
   }
-  // COALESCE(?, titulo): se não vier título novo (null), mantém o antigo
   const [resultado] = await banco.execute<ResultSetHeader>(
-    "UPDATE partidas SET titulo = COALESCE(?, titulo) WHERE id = ? AND usuario_id = ?",
-    [dados.titulo?.trim() ?? null, Number(req.params.id), usuarioDe(res)],
+    "UPDATE partidas SET titulo = ? WHERE id = ? AND usuario_id = ?",
+    [dados.titulo!.trim(), Number(req.params.id), usuarioDe(res)],
   );
   if (resultado.affectedRows === 0) {
     res.status(404).json({ erro: `Partida #${req.params.id} não encontrada.` });

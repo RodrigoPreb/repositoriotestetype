@@ -12,8 +12,10 @@ Pré-requisitos: Node.js (versão LTS) e MySQL (ou MariaDB/XAMPP).
 
 1. **Banco:** abra o `banco/script.sql` no MySQL Workbench (ou phpMyAdmin) e execute tudo.
    Isso cria o banco `AgendadaBola`, as tabelas e os dados de exemplo.
-2. **API:** na pasta `api`, copie `.env.exemplo` para `.env` e preencha a senha do MySQL
-   (`DB_SENHA`). Depois:
+2. **API:** na pasta `api`, copie `.env.exemplo` para `.env`, preencha a senha do MySQL
+   (`DB_SENHA`) e troque o `JWT_SEGREDO` por um texto aleatório seu. Para gerar um:
+   `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+   O `.env` nunca vai para o GitHub (está no `.gitignore`). Depois:
    ```
    cd api
    npm install
